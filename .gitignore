@@ -30,6 +30,9 @@ target/
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+.idea/
+/target/
+/*.iml
 
 ### VS Code ###
 .vscode/
