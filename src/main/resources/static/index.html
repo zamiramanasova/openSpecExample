@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Менеджер задач</title>
+    <style>
+        :root {
+            --bg: #f6f7f9;
+            --card: #ffffff;
+            --text: #1f2328;
+            --muted: #6b7280;
+            --border: #d8dbe0;
+            --accent: #2563eb;
+            --danger: #c62828;
+            --error-bg: #fdecea;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+        main {
+            max-width: 560px;
+            margin: 48px auto;
+            padding: 0 16px;
+        }
+        h1 { font-size: 28px; margin: 0 0 20px; }
+        form { display: flex; gap: 8px; margin-bottom: 12px; }
+        input[type=text] {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font: inherit;
+        }
+        button {
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--card);
+            font: inherit;
+            cursor: pointer;
+        }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        #error {
+            display: none;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            background: var(--error-bg);
+            color: var(--danger);
+        }
+        #error.visible { display: block; }
+        ul { list-style: none; margin: 0; padding: 0; }
+        li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        li input[type=checkbox] { width: 18px; height: 18px; flex: none; cursor: pointer; }
+        .title { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: text; }
+        li.done .title { color: var(--muted); text-decoration: line-through; }
+        .delete { color: var(--danger); padding: 4px 10px; }
+        #empty { color: var(--muted); text-align: center; padding: 24px 0; }
+        .hint { color: var(--muted); font-size: 13px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Задачи</h1>
+    <form id="add-form">
+        <input id="new-title" type="text" placeholder="Что нужно сделать?" autocomplete="off" autofocus>
+        <button class="primary" type="submit">Добавить</button>
+    </form>
+    <div id="error" role="alert"></div>
+    <ul id="list"></ul>
+    <p id="empty" hidden>Задач пока нет</p>
+    <p class="hint">Двойной клик по заголовку — переименовать (Enter — сохранить, Esc — отмена).</p>
+</main>
+<script>
+    const listEl = document.getElementById('list');
+    const emptyEl = document.getElementById('empty');
+    const errorEl = document.getElementById('error');
+    const form = document.getElementById('add-form');
+    const input = document.getElementById('new-title');
+
+    function showError(message) {
+        errorEl.textContent = message;
+        errorEl.classList.add('visible');
+    }
+
+    function clearError() {
+        errorEl.textContent = '';
+        errorEl.classList.remove('visible');
+    }
+
+    // Выполняет запрос к API; при ошибке бросает Error с понятным сообщением.
+    async function api(method, path, body) {
+        let response;
+        try {
+            response = await fetch(path, {
+                method,
+                headers: body === undefined ? {} : {'Content-Type': 'application/json; charset=utf-8'},
+                body: body === undefined ? undefined : JSON.stringify(body)
+            });
+        } catch (e) {
+            throw new Error('Сервер недоступен. Проверьте, что приложение запущено.');
+        }
+        if (response.status === 204) {
+            return null;
+        }
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (e) {
+            // тело не JSON — сообщение сформируем ниже
+        }
+        if (!response.ok) {
+            throw new Error((data && data.error) || ('Ошибка сервера: ' + response.status));
+        }
+        return data;
+    }
+
+    // Выполняет действие и после успеха перерисовывает список по данным сервера.
+    async function run(action) {
+        try {
+            await action();
+            await reload();
+        } catch (e) {
+            showError(e.message);
+            await reload(true);
+        }
+    }
+
+    async function reload(keepError) {
+        try {
+            const tasks = await api('GET', '/api/tasks');
+            if (!keepError) {
+                clearError();
+            }
+            render(tasks);
+        } catch (e) {
+            showError(e.message);
+        }
+    }
+
+    function render(tasks) {
+        listEl.replaceChildren(...tasks.map(renderTask));
+        emptyEl.hidden = tasks.length > 0;
+    }
+
+    function renderTask(task) {
+        const li = document.createElement('li');
+        li.classList.toggle('done', task.done);
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = task.done;
+        checkbox.title = 'Отметить выполненной';
+        checkbox.addEventListener('change', () => {
+            const done = checkbox.checked;
+            checkbox.checked = task.done; // не показываем несохранённое состояние
+            run(() => api('PUT', '/api/tasks/' + task.id, {done}));
+        });
+
+        const title = document.createElement('span');
+        title.className = 'title';
+        title.textContent = task.title;
+        title.addEventListener('dblclick', () => startRename(li, title, task));
+
+        const del = document.createElement('button');
+        del.className = 'delete';
+        del.type = 'button';
+        del.textContent = 'Удалить';
+        del.addEventListener('click', () => run(() => api('DELETE', '/api/tasks/' + task.id)));
+
+        li.append(checkbox, title, del);
+        return li;
+    }
+
+    function startRename(li, titleEl, task) {
+        const editor = document.createElement('input');
+        editor.type = 'text';
+        editor.className = 'title';
+        editor.value = task.title;
+        let finished = false;
+
+        const finish = (save) => {
+            if (finished) return;
+            finished = true;
+            if (save && editor.value !== task.title) {
+                run(() => api('PUT', '/api/tasks/' + task.id, {title: editor.value}));
+            } else {
+                editor.replaceWith(titleEl);
+            }
+        };
+
+        editor.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') finish(true);
+            if (event.key === 'Escape') finish(false);
+        });
+        editor.addEventListener('blur', () => finish(false));
+
+        titleEl.replaceWith(editor);
+        editor.focus();
+        editor.select();
+    }
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        run(async () => {
+            await api('POST', '/api/tasks', {title: input.value});
+            input.value = '';
+        });
+    });
+
+    reload();
+</script>
+</body>
+</html>
