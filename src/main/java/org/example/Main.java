@@ -2,14 +2,21 @@ package org.example;
 
 import com.sun.net.httpserver.HttpServer;
 
+import java.io.Console;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.BindException;
 import java.net.InetSocketAddress;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 public class Main {
     private static final int DEFAULT_PORT = 8080;
 
     public static void main(String[] args) throws IOException {
+        setUpConsoleEncoding();
         int port = readPort();
         HttpServer server;
         try {
@@ -20,7 +27,13 @@ public class Main {
             System.exit(1);
             return;
         }
+        HttpServer running = server;
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            running.stop(0);
+            System.out.println("Сервер остановлен.");
+        }));
         System.out.println("Менеджер задач запущен: http://localhost:" + server.getAddress().getPort() + "/");
+        System.out.println("Чтобы остановить сервер, нажмите Ctrl+C.");
     }
 
     /** Собирает приложение и запускает сервер; {@code port = 0} — любой свободный порт. */
@@ -31,6 +44,17 @@ public class Main {
         server.createContext("/", new StaticHandler());
         server.start();
         return server;
+    }
+
+    /**
+     * Чтобы кириллица в консоли не ломалась: в терминале пишем в его кодировке (в Windows это cp866),
+     * без терминала (IDE, вывод в файл) — в UTF-8. По умолчанию Java 17 на Windows пишет в cp1251.
+     */
+    private static void setUpConsoleEncoding() {
+        Console console = System.console();
+        Charset charset = console != null ? console.charset() : StandardCharsets.UTF_8;
+        System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true, charset));
+        System.setErr(new PrintStream(new FileOutputStream(FileDescriptor.err), true, charset));
     }
 
     private static int readPort() {

@@ -117,6 +117,21 @@ class TaskApiTest {
     }
 
     @Test
+    void rejectsSymbolOnlyTitle() throws Exception {
+        assertError(request("POST", "/api/tasks", "{\"title\": \"+\"}"), 400);
+        assertError(request("POST", "/api/tasks", "{\"title\": \"!!!\"}"), 400);
+        assertEquals(0, list().size());
+        JsonObject task = create("A");
+        assertError(request("PUT", "/api/tasks/" + task.get("id"), "{\"title\": \"---\"}"), 400);
+        assertEquals(task, list().get(0));
+    }
+
+    @Test
+    void acceptsSymbolsNextToLetters() throws Exception {
+        assertEquals("C++", create("C++").get("title").getAsString());
+    }
+
+    @Test
     void rejectsMalformedJson() throws Exception {
         assertError(request("POST", "/api/tasks", "{\"title\":"), 400);
         assertError(request("POST", "/api/tasks", "[1, 2]"), 400);

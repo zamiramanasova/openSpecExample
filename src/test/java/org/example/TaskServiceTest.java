@@ -1,6 +1,8 @@
 package org.example;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,6 +29,38 @@ class TaskServiceTest {
         assertThrows(ValidationException.class, () -> service.create(""));
         assertThrows(ValidationException.class, () -> service.create(null));
         assertTrue(service.list().isEmpty());
+    }
+
+    @Test
+    void rejectsEverySingleAsciiSymbol() {
+        for (char c = '!'; c <= '~'; c++) {
+            if (Character.isLetterOrDigit(c)) {
+                continue;
+            }
+            String title = String.valueOf(c);
+            assertThrows(ValidationException.class, () -> service.create(title), "title: " + title);
+        }
+        assertTrue(service.list().isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"!!!", "---", "...", "@#$%", "+ - * /", "  +  ", "«»", "—", "№", "\t+\n"})
+    void rejectsTitleWithoutLettersOrDigits(String title) {
+        assertThrows(ValidationException.class, () -> service.create(title));
+        assertTrue(service.list().isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"C++", "1", "Купить +", "Задача №1", "!важно!", "ё"})
+    void acceptsSymbolsNextToLettersOrDigits(String title) {
+        assertEquals(title, service.create(title).title());
+    }
+
+    @Test
+    void rejectsSymbolOnlyTitleOnUpdateWithoutChanges() {
+        Task task = service.create("A");
+        assertThrows(ValidationException.class, () -> service.update(task.id(), "+", true));
+        assertEquals(task, service.list().get(0));
     }
 
     @Test

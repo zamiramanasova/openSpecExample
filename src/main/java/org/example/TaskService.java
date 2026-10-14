@@ -41,6 +41,9 @@ public class TaskService {
         if (title == null || title.isBlank()) {
             throw new ValidationException("Заголовок задачи не может быть пустым");
         }
+        if (title.codePoints().noneMatch(Character::isLetterOrDigit)) {
+            throw new ValidationException("Заголовок задачи должен содержать хотя бы одну букву или цифру");
+        }
         return title.strip();
     }
 
